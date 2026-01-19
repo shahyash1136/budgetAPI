@@ -1,7 +1,7 @@
 const { Pool } = require("pg");
 const dotenv = require("dotenv");
 
-dotenv.config("../config.env");
+dotenv.config({ path: "./config.env" });
 
 const db = new Pool({
   user: process.env.PGUSER || "postgres",
