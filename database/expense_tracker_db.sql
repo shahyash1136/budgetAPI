@@ -27,12 +27,15 @@ CREATE TABLE
         category_name CITEXT NOT NULL UNIQUE
     );
 
+CREATE TYPE expense_type AS ENUM ('inc', 'exp');
+
 CREATE TABLE
     IF NOT EXISTS expenses (
         id SERIAL PRIMARY KEY,
         user_id INT NOT NULL,
         description VARCHAR(255) NOT NULL,
         amount NUMERIC(10, 2) NOT NULL CHECK (amount > 0),
+        expense_type expense_type NOT NULL,
         category_id INT NOT NULL,
         expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW (),
