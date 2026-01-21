@@ -1,4 +1,6 @@
+const { promisify } = require("util");
 const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 const AppError = require("../utils/appError");
 const catchAsync = require("../utils/catchAsync");
 const validator = require("validator");
@@ -79,8 +81,11 @@ const signup = catchAsync(async (req, res, next) => {
   });
 });
 
-const login = (req, res, next) => {
+const login = catchAsync(async (req, res, next) => {
+  // Step 1) Read the values from body.
   const { email, password } = req.body;
+
+  // Step 2) Validate the values which are mandatory
   const emailVal = (email || "").trim();
   const passwordVal = (password || "").trim();
 
@@ -88,21 +93,102 @@ const login = (req, res, next) => {
     return next(new AppError("Email and Password are mandatory", 400));
   }
 
-  if (!validator.isEmail(email.trim())) {
+  if (!validator.isEmail(emailVal)) {
     return next(new AppError("The email address format is invalid", 400));
   }
 
-  console.log({
-    user: {
-      email,
-      password,
+  // Step 3) Check if user exisit in the db.
+  const user = await db.query("SELECT * FROM users WHERE email=$1", [emailVal]);
+
+  if (user.rows.length === 0) {
+    return next(new AppError("Invalid email or password", 401));
+  }
+
+  const userData = user.rows[0];
+
+  const isValid = await bcrypt.compare(passwordVal, userData.password_hash);
+
+  if (!isValid) {
+    return next(new AppError("Invalid email or password", 401));
+  }
+
+  const token = signToken(userData.id, userData.role);
+
+  res.status(200).json({
+    status: "success",
+    token,
+    data: {
+      user: {
+        id: userData.id,
+        first_name: userData.first_name,
+        last_name: userData.last_name,
+        username: userData.username,
+        email: userData.email,
+        role: userData.role,
+      },
     },
   });
+});
 
-  res.status(501).json({
-    status: "error",
-    message: "This route is not yet defined",
-  });
-};
+const protect = catchAsync(async (req, res, next) => {
+  // Step 1) Get token from Authorization header and check if it exists
+  let token;
+  if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith("Bearer ")
+  ) {
+    token = req.headers.authorization.split(" ")[1];
+  }
 
-module.exports = { signup, login };
+  // Step 2) If token does not exist, return unauthorized error
+  if (!token) {
+    return next(new AppError("Please log in to access this resource", 401));
+  }
+
+  // Step 3) Verify the token using JWT_SECRET
+  const decoded = await promisify(jwt.verify)(token, process.env.JWT_SECRET);
+
+  // Step 4) Find the user in database using decoded id
+  const freshUser = await db.query("SELECT * FROM users WHERE id=$1", [
+    decoded.id,
+  ]);
+
+  if (freshUser.rows.length === 0) {
+    return next(
+      new AppError(
+        "The user belonging to this token does no longer exist.",
+        401
+      )
+    );
+  }
+
+  // Step 5) Check if user account is active
+  if (!freshUser.rows[0].is_active) {
+    return next(new AppError("User account is deactivated", 401));
+  }
+
+  // Step 6) Check if user changed password after token was issued
+  if (freshUser.rows[0].password_changed_at) {
+    const changedTimestamp = Math.floor(
+      freshUser.rows[0].password_changed_at.getTime() / 1000
+    );
+
+    if (changedTimestamp > decoded.iat) {
+      return next(
+        new AppError(
+          "User recently changed password! Please log in again.",
+          401
+        )
+      );
+    }
+  }
+
+  // Step 7) Grant access by attaching user to req object
+  req.user = freshUser.rows[0];
+
+  // Step 8) Call next() to move to protected route
+  next();
+});
+
+
+module.exports = { signup, login, protect };
