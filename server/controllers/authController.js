@@ -190,5 +190,113 @@ const protect = catchAsync(async (req, res, next) => {
   next();
 });
 
+//1) Create a Higher-Order Function
+const restrictTo = (...roles) => {
+  //2) Return a middleware function
+  return (req, res, next) => {
+    //3) Read current user role
+    const { role } = req.user;
+    //4) Check Role Authorization
+    if (!roles.includes(role)) {
+      //5) Send Authorization Error
+      return next(
+        new AppError("You do not have permission to perform this action", 403)
+      );
+    }
+    //6) Grant Access
+    next();
+  };
+};
 
-module.exports = { signup, login, protect };
+//STEP 0 — Error handling wrapper
+const updatePassword = catchAsync(async (req, res, next) => {
+  //STEP 1 — Read input from request body
+  const { currentPassword, newPassword, confirmPassword } = req.body;
+
+  //STEP 2 — Normalize inputs (trim + fallback)
+  const currentPasswordVal = (currentPassword || "").trim();
+  const newPasswordVal = (newPassword || "").trim();
+  const confirmPasswordVal = (confirmPassword || "").trim();
+
+  //STEP 3 — Mandatory fields validation
+  if (
+    validator.isEmpty(currentPasswordVal) ||
+    validator.isEmpty(newPasswordVal) ||
+    validator.isEmpty(confirmPasswordVal)
+  ) {
+    return next(
+      new AppError(
+        "Current Password, New Password and Confrim Password are mandatory fields",
+        400
+      )
+    );
+  }
+
+  //STEP 4 — New password & confirm password match
+  if (newPasswordVal !== confirmPasswordVal) {
+    return next(
+      new AppError("New Password should be equal to confirm password", 400)
+    );
+  }
+
+  //STEP 5 — Strong password validation
+  if (!validator.isStrongPassword(newPasswordVal)) {
+    return next(new AppError(`Password doesn’t meet requirements`, 422));
+  }
+
+  //STEP 6 — Fetch logged-in user from DB
+  const user = await db.query("SELECT * FROM users WHERE id=$1", [req.user.id]);
+
+  //STEP 7 — User existence check
+  if (user.rows.length === 0) {
+    return next(new AppError("User no longer exists", 401));
+  }
+
+  //STEP 8 — Verify current password
+  const isValid = await bcrypt.compare(
+    currentPasswordVal,
+    user.rows[0].password_hash
+  );
+
+  //STEP 9 — Current password wrong case
+  if (!isValid) {
+    return next(new AppError("Your current password is wrong.", 401));
+  }
+
+  //STEP 10 — Prevent password reuse
+  if (currentPasswordVal === newPasswordVal) {
+    return next(
+      new AppError("New Password cannot be same as current password", 400)
+    );
+  }
+
+  //STEP 11 — Hash new password
+  const newPasswordHash = await bcrypt.hash(newPasswordVal, 12);
+
+  //STEP 12 — UPDATE QUERY
+  const freshUser = await db.query(
+    "UPDATE users SET password_hash=$1, password_changed_at=$2 WHERE id=$3 RETURNING *",
+    [newPasswordHash, new Date(), user.rows[0].id]
+  );
+
+  //STEP 13 — Generate new JWT
+  const token = signToken(freshUser.rows[0].id, freshUser.rows[0].role);
+
+  //STEP 14 — Send response
+  res.status(200).json({
+    status: "success",
+    token,
+    data: {
+      user: {
+        id: freshUser.rows[0].id,
+        first_name: freshUser.rows[0].first_name,
+        last_name: freshUser.rows[0].last_name,
+        username: freshUser.rows[0].username,
+        email: freshUser.rows[0].email,
+        role: freshUser.rows[0].role,
+      },
+    },
+  });
+});
+
+module.exports = { signup, login, protect, restrictTo, updatePassword };
