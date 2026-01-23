@@ -7,6 +7,7 @@ const catchAsync = require("../utils/catchAsync");
 const validator = require("validator");
 const db = require("../db/pool");
 const { signToken } = require("../utils/signToken");
+const sendResetEmail = require("../utils/email");
 
 const signup = catchAsync(async (req, res, next) => {
   // Step 1 ) Read the values from body.
@@ -318,47 +319,73 @@ const forgotpassword = catchAsync(async (req, res, next) => {
   }
 
   // STEP 5 — Find user by email
-  const user = await db.query("SELECT * FROM users WHERE email=$1", [emailVal]);
+  const result = await db.query("SELECT * FROM users WHERE email=$1", [
+    emailVal,
+  ]);
 
   // STEP 6 — Prevent email enumeration attack
-  // Always return success response even if user does not exist
-  if (user.rows.length === 0) {
+  if (result.rows.length === 0) {
     return res.status(200).json({
       status: "success",
-      message: "Reset Token send to the provided email",
+      message: "Reset token sent to the provided email",
     });
   }
 
-  // STEP 7 — Generate password reset token (plain)
+  const user = result.rows[0];
+
+  // STEP 7 — Generate reset token (plain)
   const resetToken = crypto.randomBytes(32).toString("hex");
 
-  // STEP 8 — Hash reset token before storing in DB
+  // STEP 8 — Hash token before storing
   const password_reset_token = crypto
     .createHash("sha256")
     .update(resetToken)
     .digest("hex");
 
-  // STEP 9 — Set token expiry time (10 minutes)
-  const password_reset_expires = Date.now() + 10 * 60 * 1000;
+  // STEP 9 — Set token expiry (10 minutes)
+  const password_reset_expires = new Date(Date.now() + 10 * 60 * 1000);
 
-  // STEP 10 — Store hashed token & expiry in DB
+  // STEP 10 — Store token & expiry in DB
   await db.query(
-    "UPDATE users SET password_reset_token=$1, password_reset_expires=$2 WHERE email=$3",
-    [password_reset_token, password_reset_expires, emailVal]
+    "UPDATE users SET password_reset_token=$1, password_reset_expires=$2 WHERE id=$3",
+    [password_reset_token, password_reset_expires, user.id]
   );
 
-  // STEP 11 — Create reset URL (send via email)
+  // STEP 11 — Create reset URL
   const resetUrl = `${req.protocol}://${req.get(
     "host"
   )}/api/v1/users/reset-password?token=${resetToken}`;
 
-  // STEP 12 — TODO: Send reset email to user with resetUrl
+  // STEP 12 — Prepare email message
+  const message = `Forgot your password?\n\nSubmit a PATCH request with your new password to:\n${resetUrl}\n\nIf you didn't request this, please ignore this email.`;
 
-  // STEP 13 — Send success response
-  res.status(200).json({
-    status: "success",
-    message: "Reset Token send to the provided email",
-  });
+  try {
+    // STEP 13 — Send reset email
+    await sendResetEmail({
+      email: user.email,
+      subject: "Your password reset token (valid for 10 minutes)",
+      message,
+    });
+
+    // STEP 14 — Send success response
+    res.status(200).json({
+      status: "success",
+      message: "Reset token sent to the provided email",
+    });
+  } catch (err) {
+    // STEP 15 — Rollback token if email fails
+    await db.query(
+      "UPDATE users SET password_reset_token=NULL, password_reset_expires=NULL WHERE id=$1",
+      [user.id]
+    );
+
+    return next(
+      new AppError(
+        "There was an error sending the email. Please try again later.",
+        500
+      )
+    );
+  }
 });
 
 const resetPassword = catchAsync(async (req, res, next) => {
