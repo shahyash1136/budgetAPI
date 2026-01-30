@@ -74,19 +74,39 @@ const updateUser = catchAsync(async (req, res, next) => {
     values.push(date_of_birth);
   }
 
-  // STEP 6 — Ensure at least one field is being updated
+  // STEP 5 — Fetch current user to get old image
+  const existingUser = await db.query(
+    "SELECT profile_image_url FROM users WHERE id=$1",
+    [req.user.id]
+  );
+
+  // STEP 6 - Add profile image if uploaded
+  if (req.file) {
+    const oldImage = existingUser.rows[0]?.profile_image_url;
+
+    // STEP 7 - delete old image if exists
+    if (oldImage) {
+      const oldImagePath = `public${oldImage}`;
+      deleteFile(oldImagePath);
+    }
+
+    updates.push(`profile_image_url = $${index++}`);
+    values.push(`/img/users/${req.file.filename}`);
+  }
+
+  // STEP 8 — Ensure at least one field is being updated
   if (updates.length === 0) {
     return next(new AppError("Provide at least one field to update", 400));
   }
 
-  // STEP 7 — Always update updated_at timestamp
+  // STEP 9 — Always update updated_at timestamp
   updates.push(`updated_at = $${index++}`);
   values.push(new Date());
 
-  // STEP 8 — Add user id for WHERE clause
+  // STEP 10 — Add user id for WHERE clause
   values.push(req.user.id);
 
-  // STEP 9 — Execute UPDATE query
+  // STEP 11 — Execute UPDATE query
   const updatedUser = await db.query(
     `
     UPDATE users
@@ -108,7 +128,7 @@ const updateUser = catchAsync(async (req, res, next) => {
     values
   );
 
-  // STEP 10 — Send updated user data response
+  // STEP 12 — Send updated user data response
   res.status(200).json({
     status: "success",
     data: {
@@ -116,6 +136,5 @@ const updateUser = catchAsync(async (req, res, next) => {
     },
   });
 });
-
 
 module.exports = { usersDetails, updateUser };
