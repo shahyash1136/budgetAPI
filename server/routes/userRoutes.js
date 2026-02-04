@@ -7,7 +7,11 @@ const {
   forgotpassword,
   resetPassword,
 } = require("../controllers/authController");
-const { usersDetails, updateUser } = require("../controllers/userController");
+const {
+  usersDetails,
+  updateUser,
+  deactivateUser,
+} = require("../controllers/userController");
 const { uploadUserPhoto } = require("../utils/multer");
 const resizeUserPhoto = require("../utils/resizeUserPhoto");
 
@@ -23,12 +27,12 @@ userRouter.patch("/reset-password", resetPassword);
 
 userRouter.get("/me", protect, usersDetails);
 userRouter.patch(
-  "update-me",
+  "/update-me",
   protect,
   uploadUserPhoto,
   resizeUserPhoto,
   updateUser
 );
-userRouter.delete("deactivate-me", protect, (req, res, next) => {});
+userRouter.delete("/deactivate-me", protect, deactivateUser);
 
 module.exports = userRouter;

@@ -2,6 +2,7 @@ const validator = require("validator");
 const AppError = require("../utils/appError");
 const catchAsync = require("../utils/catchAsync");
 const db = require("../db/pool");
+const deleteFile = require("../utils/deleteFile");
 
 const usersDetails = catchAsync(async (req, res, next) => {
   // STEP 1 — Extract logged-in user id from protect middleware
@@ -137,4 +138,25 @@ const updateUser = catchAsync(async (req, res, next) => {
   });
 });
 
-module.exports = { usersDetails, updateUser };
+const deactivateUser = catchAsync(async (req, res, next) => {
+  const result = await db.query(
+    `
+    UPDATE users
+    SET 
+      is_active = $1,
+      password_changed_at = $2,
+      updated_at = $3
+    WHERE id = $4 
+      AND is_active = TRUE
+    `,
+    [false, new Date(), new Date(), req.user.id]
+  );
+
+  if (result.rowCount === 0) {
+    return next(new AppError("Account already deactivated", 400));
+  }
+
+  return res.status(204).send();
+});
+
+module.exports = { usersDetails, updateUser, deactivateUser };

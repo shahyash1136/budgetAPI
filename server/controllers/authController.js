@@ -396,6 +396,7 @@ const resetPassword = catchAsync(async (req, res, next) => {
   // STEP 2 — Normalize inputs
   const newPasswordVal = (newPassword || "").trim();
   const confirmPasswordVal = (confirmPassword || "").trim();
+  const tokenVal = (token || "").trim();
 
   // STEP 3 — Validate required fields
   if (
@@ -410,8 +411,12 @@ const resetPassword = catchAsync(async (req, res, next) => {
     );
   }
 
+  if (validator.isEmpty(tokenVal)) {
+    return next(new AppError("Reset token is required", 400));
+  }
+
   // STEP 4 — Hash received reset token
-  const hashToken = crypto.createHash("sha256").update(token).digest("hex");
+  const hashToken = crypto.createHash("sha256").update(tokenVal).digest("hex");
 
   // STEP 5 — Find user by valid token & expiry
   const user = await db.query(
