@@ -7,16 +7,34 @@ const getUserAllExpense = catchAsync(async (req, res, next) => {
   //1 Take user id from req.user
   const { id } = req.user;
 
-  const filterObj = new APIFeatures(req.query).filter();
-  const filters = [];
-  const params = [id];
-  Object.entries(filterObj.queryString).forEach(([key, value]) => {
-    params.push(value);
-    filters.push(`${key} = $${params.length}`);
-  });
+  const columnMap = {
+    amount: "e.amount",
+    expense_type: "e.expense_type",
+    expense_date: "e.expense_date",
 
-  const data = await db.query(
-    `SELECT
+    category_name: "c.category_name",
+    category_id: "c.id",
+
+    first_name: "u.first_name",
+    last_name: "u.last_name",
+  };
+
+  const features = new APIFeatures(req.query, {
+    columnMap,
+    defaultSort: "u.expense_date DESC",
+  })
+    .addBaseFilter("e.user_id", req.user.id)
+    .filter([
+      "amount",
+      "expense_type",
+      "expense_date",
+      "category_id",
+      "category_name",
+    ])
+    .sorts(["amount", "expense_date", "category_name"]);
+
+  const { query, params } = features.buildQuery(`
+  SELECT
         e.id,
         u.first_name,
         u.last_name,
@@ -30,10 +48,9 @@ const getUserAllExpense = catchAsync(async (req, res, next) => {
         expenses as e
         LEFT JOIN users as u on e.user_id = u.id
         LEFT JOIN categories as c on e.category_id = c.id
-    WHERE e.user_id = $1
-        ${filters.length ? `AND ${filters.join(" AND ")}` : ""} ;`,
-    params,
-  );
+`);
+
+  const data = await db.query(query, params);
 
   res.status(200).json({
     status: "success",
