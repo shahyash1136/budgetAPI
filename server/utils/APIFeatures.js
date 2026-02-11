@@ -5,6 +5,9 @@ class APIFeatures {
     this.sort = [];
     this.params = [];
 
+    this.limit = 10;
+    this.offsetValue = 0;
+
     this.columnMap = options.columnMap || {};
     this.defaultSort = options.defaultSort || "created_at DESC";
   }
@@ -58,6 +61,17 @@ class APIFeatures {
     return this;
   }
 
+  // STEP — Pagination
+  pagination() {
+    const limit = Math.min(Number(this.queryString.limit) || 10, 100);
+    const page = Number(this.queryString.page) || 1;
+
+    this.limit = limit;
+    this.offsetValue = (page - 1) * limit;
+
+    return this;
+  }
+
   // STEP — Build Final Query
   buildQuery(baseQuery) {
     let finalQuery = baseQuery;
@@ -71,6 +85,8 @@ class APIFeatures {
     } else {
       finalQuery += ` ORDER BY ${this.defaultSort}`;
     }
+
+    finalQuery += ` LIMIT ${this.limit} OFFSET ${this.offsetValue}`;
 
     return {
       query: finalQuery,

@@ -21,9 +21,9 @@ const getUserAllExpense = catchAsync(async (req, res, next) => {
 
   const features = new APIFeatures(req.query, {
     columnMap,
-    defaultSort: "u.expense_date DESC",
+    defaultSort: "e.expense_date DESC",
   })
-    .addBaseFilter("e.user_id", req.user.id)
+    .addBaseFilter("e.user_id", id)
     .filter([
       "amount",
       "expense_type",
@@ -31,7 +31,17 @@ const getUserAllExpense = catchAsync(async (req, res, next) => {
       "category_id",
       "category_name",
     ])
-    .sorts(["amount", "expense_date", "category_name"]);
+    .sorts(["amount", "expense_date", "category_name"])
+    .pagination();
+
+  const count = await db.query(
+    `SELECT 
+    COUNT(*) 
+    FROM expenses 
+    WHERE 
+    user_id = $1`,
+    [id],
+  );
 
   const { query, params } = features.buildQuery(`
   SELECT
