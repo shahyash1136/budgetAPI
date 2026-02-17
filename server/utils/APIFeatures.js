@@ -24,16 +24,89 @@ class APIFeatures {
     return this;
   }
 
-  // STEP — Filtering
+  // --------------------------------
+  // ✅ SEARCH (Already Added)
+  // --------------------------------
+  search(searchableFields = []) {
+    if (!this.queryString.search) return this;
+
+    const searchValue = this.queryString.search.trim();
+    if (!searchValue) return this;
+
+    const searchConditions = searchableFields.map((field) => {
+      const column = this.getColumn(field);
+      return `${column} ILIKE $${this.params.length + 1}`;
+    });
+
+    this.params.push(`%${searchValue}%`);
+    this.filters.push(`(${searchConditions.join(" OR ")})`);
+
+    return this;
+  }
+
+  // --------------------------------
+  // ✅ ADVANCED FILTER ADDED HERE
+  // --------------------------------
   filter(allowedFilters) {
     const queryObj = { ...this.queryString };
 
-    ["page", "sort", "limit", "fields"].forEach((el) => delete queryObj[el]);
+    ["page", "sort", "limit", "fields", "search"].forEach(
+      (el) => delete queryObj[el],
+    );
 
     Object.entries(queryObj).forEach(([key, value]) => {
-      if (allowedFilters.includes(key)) {
-        const column = this.getColumn(key);
+      if (!allowedFilters.includes(key)) return;
 
+      const column = this.getColumn(key);
+
+      // -----------------------
+      // ADVANCED FILTER OBJECT
+      // -----------------------
+      if (typeof value === "object" && value !== null) {
+        Object.entries(value).forEach(([operator, opValue]) => {
+          switch (operator) {
+            case "gte":
+              this.params.push(opValue);
+              this.filters.push(`${column} >= $${this.params.length}`);
+              break;
+
+            case "lte":
+              this.params.push(opValue);
+              this.filters.push(`${column} <= $${this.params.length}`);
+              break;
+
+            case "gt":
+              this.params.push(opValue);
+              this.filters.push(`${column} > $${this.params.length}`);
+              break;
+
+            case "lt":
+              this.params.push(opValue);
+              this.filters.push(`${column} < $${this.params.length}`);
+              break;
+
+            case "between": {
+              const [min, max] = opValue.split(",");
+
+              this.params.push(min);
+              this.params.push(max);
+
+              this.filters.push(
+                `${column} BETWEEN $${this.params.length - 1} AND $${this.params.length}`,
+              );
+              break;
+            }
+
+            default:
+              break;
+          }
+        });
+      }
+
+      // -----------------------
+      // NORMAL FILTER (OLD LOGIC)
+      // -----------------------
+      else {
         this.params.push(value);
         this.filters.push(`${column} = $${this.params.length}`);
       }
@@ -67,6 +140,7 @@ class APIFeatures {
     const page = Number(this.queryString.page) || 1;
 
     this.limit = limit;
+    this.page = page;
     this.offsetValue = (page - 1) * limit;
 
     return this;
@@ -87,6 +161,20 @@ class APIFeatures {
     }
 
     finalQuery += ` LIMIT ${this.limit} OFFSET ${this.offsetValue}`;
+
+    return {
+      query: finalQuery,
+      params: this.params,
+    };
+  }
+
+  // Build Count Query
+  buildCountQuery(baseQuery) {
+    let finalQuery = `SELECT COUNT(*) ${baseQuery}`;
+
+    if (this.filters.length) {
+      finalQuery += ` WHERE ${this.filters.join(" AND ")}`;
+    }
 
     return {
       query: finalQuery,

@@ -5,7 +5,11 @@ const globalErrorHandler = require("./controllers/errorController");
 const categoryRouter = require("./routes/categoriesRoutes");
 const usersRouter = require("./routes/userRoutes");
 const expenseRouter = require("./routes/expenseRoutes");
+const qs = require("qs");
+
 const app = express();
+
+app.set("query parser", (str) => qs.parse(str));
 
 //1) Middleware
 if (process.env.NODE_ENV === "development") {
